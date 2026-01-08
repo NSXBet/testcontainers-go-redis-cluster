@@ -52,7 +52,7 @@ Creates a Redis cluster by starting individual Redis containers and manually for
 
 **Parameters:**
 - `t`: The testing.TB instance (used for cleanup). Accepts both `*testing.T` (unit tests) and `*testing.B` (benchmarks).
-- `nodes`: Number of master nodes in the cluster (must be >= 1)
+- `nodes`: Number of master nodes in the cluster (must be >= 3)
 
 **Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
 
@@ -73,7 +73,7 @@ Creates a Redis cluster using the `grokzen/redis-cluster` Docker image. This is 
 
 **Parameters:**
 - `t`: The testing.TB instance (used for cleanup). Accepts both `*testing.T` (unit tests) and `*testing.B` (benchmarks).
-- `nodes`: Number of master nodes in the cluster (must be >= 1). Each master will have 1 slave by default.
+- `nodes`: Number of master nodes in the cluster (must be >= 3). Each master will have 1 slave by default.
 
 **Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
 
@@ -139,8 +139,7 @@ The repository is cached in `/tmp/docker-redis-cluster` and will be updated auto
 
 ## Cluster Requirements
 
-- **Minimum nodes:** Redis clusters require at least 3 master nodes to form a proper cluster with hash slot assignment
-- **Single node:** While the functions accept `nodes >= 1`, single-node clusters will have `cluster_state:fail` and won't assign hash slots, which may cause issues with some operations
+- **Minimum nodes:** Redis clusters require at least 3 master nodes to form a proper cluster with hash slot assignment. Both `Redis` and `RedisV2` enforce this requirement and will fail with a clear error message if fewer than 3 nodes are requested.
 
 ## Testing
 

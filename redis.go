@@ -22,8 +22,8 @@ import (
 // The cluster is automatically cleaned up when the test completes via t.Cleanup().
 // Based on https://github.com/Grokzen/docker-redis-cluster
 func Redis(t testing.TB, nodes int) string {
-	if nodes < 1 {
-		t.Fatalf("number of nodes must be at least 1, got %d", nodes)
+	if nodes < 3 {
+		t.Fatalf("number of nodes must be at least 3 for a Redis cluster, got %d. Redis clusters require at least 3 master nodes to distribute hash slots.", nodes)
 	}
 
 	ctx := context.Background()
