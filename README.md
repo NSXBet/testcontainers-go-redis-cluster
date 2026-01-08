@@ -1,24 +1,8 @@
 # testcontainers-go-redis-cluster
 
-A Go library that provides a simple API for creating Redis clusters using [testcontainers-go](https://github.com/testcontainers/testcontainers-go) and the [grokzen/redis-cluster](https://github.com/Grokzen/docker-redis-cluster) Docker image. Perfect for integration testing with Redis clusters.
+A Go library for creating Redis clusters in tests using [testcontainers-go](https://github.com/testcontainers/testcontainers-go). Provides two implementations: `Redis` (V1) and `RedisV2` (recommended, faster).
 
-## Features
-
-- 🚀 Simple API for Redis clusters
-- 🔧 Configurable number of master nodes
-- 🧹 Automatic cleanup via `t.Cleanup()`
-- ✅ Returns connection strings compatible with `redis/go-redis` cluster client
-- 🧪 Includes comprehensive tests
-
-## Installation
-
-```bash
-go get github.com/NSXBet/testcontainers-go-redis-cluster
-```
-
-## Usage
-
-### Redis Cluster
+## Quick Start
 
 ```go
 package main
@@ -32,8 +16,8 @@ import (
 )
 
 func TestMyFeature(t *testing.T) {
-    // Create a 5-master Redis cluster (10 nodes total: 5 masters + 5 slaves)
-    connStr := tcredis.Redis(t, 5)
+    // Recommended: Use RedisV2 for faster cluster startup (~8s vs ~22s)
+    connStr := tcredis.RedisV2(t, 3) // 3-node cluster
     
     // Parse connection string and create cluster client
     opts, err := redis.ParseClusterURL(connStr)
@@ -62,30 +46,84 @@ func TestMyFeature(t *testing.T) {
 
 ## API
 
+### `tcredis.RedisV2(t *testing.T, nodes int) string` (Recommended)
+
+Creates a Redis cluster by starting individual Redis containers and manually forming the cluster. This approach is **significantly faster** (~8 seconds) than V1.
+
+**Parameters:**
+- `t`: The testing.T instance (used for cleanup)
+- `nodes`: Number of master nodes in the cluster (must be >= 1)
+
+**Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
+
+**How it works:**
+1. Starts N separate Redis containers (one per master node)
+2. Creates a Docker network for inter-container communication
+3. Forms the cluster using `redis-cli --cluster create`
+4. Configures `cluster-announce-ip` and `cluster-announce-port` for external client access
+5. Verifies cluster readiness and returns connection string
+
+**Performance:** ~8 seconds for a 3-node cluster (vs ~22 seconds for V1)
+
+**Ports:** Uses ports starting from 7000 (7000, 7001, 7002, etc.)
+
 ### `tcredis.Redis(t *testing.T, nodes int) string`
 
-Creates a Redis cluster with the specified number of master nodes and returns a connection string.
+Creates a Redis cluster using the `grokzen/redis-cluster` Docker image. This is the original implementation.
 
-- **Parameters:**
-  - `t`: The testing.T instance (used for cleanup)
-  - `nodes`: Number of master nodes in the cluster (must be >= 1). Each master will have 1 slave by default.
-- **Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
+**Parameters:**
+- `t`: The testing.T instance (used for cleanup)
+- `nodes`: Number of master nodes in the cluster (must be >= 1). Each master will have 1 slave by default.
+
+**Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
+
+**How it works:**
+1. Automatically builds a local Docker image (`tcredis/redis-cluster:7.0.7`) on first use
+2. Starts a single container with the grokzen/redis-cluster image
+3. The image automatically sets up the cluster with masters and slaves
+4. Configures `cluster-announce-ip` and `cluster-announce-port` for external client access
+5. Verifies cluster readiness and returns connection string
+
+**Performance:** ~22 seconds for a 3-node cluster
 
 **Note:** The number of nodes specified is the number of masters. The total number of nodes will be `2 * nodes` (masters + slaves). For example, `Redis(t, 5)` creates 5 masters and 5 slaves (10 nodes total).
+
+**Ports:** Uses ports starting from 10000 (10000 to 10000 + 2 * nodes - 1)
+
+## Comparison: RedisV2 vs Redis
+
+| Feature | RedisV2 (Recommended) | Redis (V1) |
+|---------|----------------------|------------|
+| **Startup Time** | ~8 seconds | ~22 seconds |
+| **Approach** | Individual containers | Single container with grokzen image |
+| **Replicas** | No replicas (masters only) | 1 replica per master |
+| **Image** | Official `redis:7.0.7` | Custom `tcredis/redis-cluster:7.0.7` |
+| **Port Range** | 7000+ | 10000+ |
+| **Use Case** | Faster tests, simpler setup | When replicas are needed |
+
+**Recommendation:** Use `RedisV2` unless you specifically need replicas. It's faster and uses the official Redis image.
 
 ## Requirements
 
 - Go 1.21 or later
 - Docker (required by testcontainers-go)
 
-## Automatic Local Image Building
+## Connection String Format
 
-The library automatically builds a local Docker image (`tcredis/redis-cluster:7.0.7`) on first use. This ensures:
+Both functions return connection strings in the format:
+```
+redis://host:port?addr=host:port2&addr=host:port3
+```
+
+This format is compatible with `redis.ParseClusterURL()` from the `github.com/redis/go-redis/v9` package.
+
+## Automatic Image Building (Redis V1 only)
+
+The `Redis` function automatically builds a local Docker image (`tcredis/redis-cluster:7.0.7`) on first use. This ensures:
 
 - **Better ARM64 compatibility**: No emulation needed on Apple Silicon
 - **Faster subsequent runs**: Image is cached after first build
 - **More reliable**: Locally built images work better with testcontainers
-- **Transparent**: No manual steps required - just use `tcredis.Redis(t, 5)`
 
 **First run:** The library will automatically:
 1. Check if `tcredis/redis-cluster:7.0.7` exists locally
@@ -97,17 +135,12 @@ The library automatically builds a local Docker image (`tcredis/redis-cluster:7.
 
 The repository is cached in `/tmp/docker-redis-cluster` and will be updated automatically when needed.
 
-## How It Works
+**Note:** `RedisV2` uses the official `redis:7.0.7` image which is pulled automatically if not present.
 
-The library uses the [`grokzen/redis-cluster:7.0.7`](https://github.com/Grokzen/docker-redis-cluster) Docker image which automatically sets up a Redis cluster with the specified number of master nodes. The cluster is configured with:
+## Cluster Requirements
 
-- 1 slave per master (default behavior)
-- Cluster mode enabled
-- Automatic slot assignment
-- Initial port: 10000
-- Port mapping: `10000` to `10000 + 2 * nodes - 1` (e.g., for 5 nodes: ports 10000-10009)
-
-The connection string returned includes all master node addresses. The `redis/go-redis` client will automatically discover all other nodes in the cluster when connecting.
+- **Minimum nodes:** Redis clusters require at least 3 master nodes to form a proper cluster with hash slot assignment
+- **Single node:** While the functions accept `nodes >= 1`, single-node clusters will have `cluster_state:fail` and won't assign hash slots, which may cause issues with some operations
 
 ## Testing
 
@@ -118,6 +151,42 @@ go test ./...
 ```
 
 Make sure Docker is running before executing tests.
+
+## Examples
+
+### Using RedisV2 (Recommended)
+
+```go
+func TestRedisCluster(t *testing.T) {
+    connStr := tcredis.RedisV2(t, 3) // 3-node cluster
+    
+    opts, _ := redis.ParseClusterURL(connStr)
+    client := redis.NewClusterClient(opts)
+    defer client.Close()
+    
+    ctx := context.Background()
+    client.Set(ctx, "key", "value", 0)
+    val, _ := client.Get(ctx, "key").Result()
+    t.Logf("Value: %s", val)
+}
+```
+
+### Using Redis (V1)
+
+```go
+func TestRedisCluster(t *testing.T) {
+    connStr := tcredis.Redis(t, 3) // 3 masters + 3 slaves = 6 nodes total
+    
+    opts, _ := redis.ParseClusterURL(connStr)
+    client := redis.NewClusterClient(opts)
+    defer client.Close()
+    
+    ctx := context.Background()
+    client.Set(ctx, "key", "value", 0)
+    val, _ := client.Get(ctx, "key").Result()
+    t.Logf("Value: %s", val)
+}
+```
 
 ## License
 
