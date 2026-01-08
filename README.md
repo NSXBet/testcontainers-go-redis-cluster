@@ -46,12 +46,12 @@ func TestMyFeature(t *testing.T) {
 
 ## API
 
-### `tcredis.RedisV2(t *testing.T, nodes int) string` (Recommended)
+### `tcredis.RedisV2(t testing.TB, nodes int) string` (Recommended)
 
 Creates a Redis cluster by starting individual Redis containers and manually forming the cluster. This approach is **significantly faster** (~8 seconds) than V1.
 
 **Parameters:**
-- `t`: The testing.T instance (used for cleanup)
+- `t`: The testing.TB instance (used for cleanup). Accepts both `*testing.T` (unit tests) and `*testing.B` (benchmarks).
 - `nodes`: Number of master nodes in the cluster (must be >= 1)
 
 **Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
@@ -67,12 +67,12 @@ Creates a Redis cluster by starting individual Redis containers and manually for
 
 **Ports:** Uses ports starting from 7000 (7000, 7001, 7002, etc.)
 
-### `tcredis.Redis(t *testing.T, nodes int) string`
+### `tcredis.Redis(t testing.TB, nodes int) string`
 
 Creates a Redis cluster using the `grokzen/redis-cluster` Docker image. This is the original implementation.
 
 **Parameters:**
-- `t`: The testing.T instance (used for cleanup)
+- `t`: The testing.TB instance (used for cleanup). Accepts both `*testing.T` (unit tests) and `*testing.B` (benchmarks).
 - `nodes`: Number of master nodes in the cluster (must be >= 1). Each master will have 1 slave by default.
 
 **Returns:** Connection string in `redis://host:port` format compatible with `redis.ParseClusterURL()`
@@ -92,14 +92,14 @@ Creates a Redis cluster using the `grokzen/redis-cluster` Docker image. This is 
 
 ## Comparison: RedisV2 vs Redis
 
-| Feature | RedisV2 (Recommended) | Redis (V1) |
-|---------|----------------------|------------|
-| **Startup Time** | ~8 seconds | ~22 seconds |
-| **Approach** | Individual containers | Single container with grokzen image |
-| **Replicas** | No replicas (masters only) | 1 replica per master |
-| **Image** | Official `redis:7.0.7` | Custom `tcredis/redis-cluster:7.0.7` |
-| **Port Range** | 7000+ | 10000+ |
-| **Use Case** | Faster tests, simpler setup | When replicas are needed |
+| Feature          | RedisV2 (Recommended)       | Redis (V1)                           |
+| ---------------- | --------------------------- | ------------------------------------ |
+| **Startup Time** | ~8 seconds                  | ~22 seconds                          |
+| **Approach**     | Individual containers       | Single container with grokzen image  |
+| **Replicas**     | No replicas (masters only)  | 1 replica per master                 |
+| **Image**        | Official `redis:7.0.7`      | Custom `tcredis/redis-cluster:7.0.7` |
+| **Port Range**   | 7000+                       | 10000+                               |
+| **Use Case**     | Faster tests, simpler setup | When replicas are needed             |
 
 **Recommendation:** Use `RedisV2` unless you specifically need replicas. It's faster and uses the official Redis image.
 

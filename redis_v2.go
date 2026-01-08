@@ -21,7 +21,7 @@ import (
 // using the grokzen image since individual Redis containers start very quickly.
 // It returns a connection string in the format redis://host:port
 // that can be used with Redis clients that support cluster mode.
-func RedisV2(t *testing.T, nodes int) string {
+func RedisV2(t testing.TB, nodes int) string {
 	startTime := time.Now()
 	if nodes < 1 {
 		t.Fatalf("number of nodes must be at least 1, got %d", nodes)
@@ -195,7 +195,7 @@ func RedisV2(t *testing.T, nodes int) string {
 }
 
 // ensureRedisImage checks if the Redis image exists locally, pulls it if needed
-func ensureRedisImage(ctx context.Context, t *testing.T, imageName string) error {
+func ensureRedisImage(ctx context.Context, t testing.TB, imageName string) error {
 	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", imageName)
 	if err := cmd.Run(); err == nil {
 		// Image exists, we're good
@@ -217,7 +217,7 @@ func ensureRedisImage(ctx context.Context, t *testing.T, imageName string) error
 }
 
 // waitForClusterReadyV2 waits for the cluster to be ready (hash slots assigned)
-func waitForClusterReadyV2(ctx context.Context, t *testing.T, firstAddr string, nodes int) error {
+func waitForClusterReadyV2(ctx context.Context, t testing.TB, firstAddr string, nodes int) error {
 	maxAttempts := 30
 	checkInterval := 200 * time.Millisecond
 
@@ -256,7 +256,7 @@ func waitForClusterReadyV2(ctx context.Context, t *testing.T, firstAddr string, 
 }
 
 // configureClusterAnnounceV2 configures cluster-announce-ip and cluster-announce-port on all nodes in parallel
-func configureClusterAnnounceV2(ctx context.Context, t *testing.T, containers []testcontainers.Container, initialPort int, baseHost string) error {
+func configureClusterAnnounceV2(ctx context.Context, t testing.TB, containers []testcontainers.Container, initialPort int, baseHost string) error {
 	type configResult struct {
 		index int
 		err   error
@@ -322,7 +322,7 @@ func configureClusterAnnounceV2(ctx context.Context, t *testing.T, containers []
 
 // waitForClusterAnnounceReadyV2 polls to verify that cluster announce configuration has propagated
 // Ultra-fast version: only checks CLUSTER SLOTS (what clients actually use) and does a single SET/GET
-func waitForClusterAnnounceReadyV2(ctx context.Context, t *testing.T, addrs []string, initialPort, nodes int) error {
+func waitForClusterAnnounceReadyV2(ctx context.Context, t testing.TB, addrs []string, initialPort, nodes int) error {
 	maxAttempts := 15 // Reduced - if not ready in 750ms, something is wrong
 	checkInterval := 50 * time.Millisecond // Faster polling
 

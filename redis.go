@@ -21,7 +21,7 @@ import (
 // that can be used with Redis clients that support cluster mode.
 // The cluster is automatically cleaned up when the test completes via t.Cleanup().
 // Based on https://github.com/Grokzen/docker-redis-cluster
-func Redis(t *testing.T, nodes int) string {
+func Redis(t testing.TB, nodes int) string {
 	if nodes < 1 {
 		t.Fatalf("number of nodes must be at least 1, got %d", nodes)
 	}
@@ -142,7 +142,7 @@ func Redis(t *testing.T, nodes int) string {
 }
 
 // waitForClusterReady waits for the cluster to be fully initialized by checking CLUSTER INFO
-func waitForClusterReady(ctx context.Context, t *testing.T, firstAddr string, expectedMasters int) error {
+func waitForClusterReady(ctx context.Context, t testing.TB, firstAddr string, expectedMasters int) error {
 	// Single-node clusters may take longer to initialize
 	timeout := 60 * time.Second
 	if expectedMasters == 1 {
@@ -236,7 +236,7 @@ func waitForClusterReady(ctx context.Context, t *testing.T, firstAddr string, ex
 }
 
 // ensureLocalImage checks if the image exists locally, and builds it if it doesn't
-func ensureLocalImage(ctx context.Context, t *testing.T, imageName, redisVersion string) error {
+func ensureLocalImage(ctx context.Context, t testing.TB, imageName, redisVersion string) error {
 	// Check if image exists locally
 	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", imageName)
 	if err := cmd.Run(); err == nil {
@@ -279,7 +279,7 @@ func ensureLocalImage(ctx context.Context, t *testing.T, imageName, redisVersion
 }
 
 // ensureGrokzenRepo ensures the grokzen/docker-redis-cluster repository is available locally
-func ensureGrokzenRepo(ctx context.Context, t *testing.T, repoDir string) error {
+func ensureGrokzenRepo(ctx context.Context, t testing.TB, repoDir string) error {
 	// Check if repo already exists
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
 		// Repo exists, try to update it
@@ -327,7 +327,7 @@ func getNativePlatform() (string, error) {
 
 // configureClusterAnnounce configures each Redis node to advertise external addresses
 // This is necessary for clients to connect from outside the container (NAT mapping)
-func configureClusterAnnounce(ctx context.Context, t *testing.T, redisC testcontainers.Container, addrs []string, initialPort, nodes int) error {
+func configureClusterAnnounce(ctx context.Context, t testing.TB, redisC testcontainers.Container, addrs []string, initialPort, nodes int) error {
 	// Get the host IP (should be 127.0.0.1 for testcontainers)
 	host, err := redisC.Host(ctx)
 	if err != nil {
@@ -403,7 +403,7 @@ func configureClusterAnnounce(ctx context.Context, t *testing.T, redisC testcont
 // This allows the cluster to be used as soon as it's ready, rather than waiting a fixed time
 // Uses 100ms intervals, up to 50 attempts (5s max total)
 // Verifies ALL addresses (masters + slaves) in parallel since clients may connect to any node
-func waitForClusterAnnounceReady(ctx context.Context, t *testing.T, addrs []string, initialPort, nodes int) error {
+func waitForClusterAnnounceReady(ctx context.Context, t testing.TB, addrs []string, initialPort, nodes int) error {
 	maxAttempts := 50
 	checkInterval := 100 * time.Millisecond
 
