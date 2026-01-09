@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,14 @@ func RedisV2(t testing.TB, nodes int) string {
 	ctx := context.Background()
 	initialPort := 7000 // Start from 7000 for cluster mode
 
+	// Get current directory name for Docker grouping
+	currentDir, err := os.Getwd()
+	if err != nil {
+		t.Logf("Warning: failed to get current directory: %v", err)
+		currentDir = "unknown"
+	}
+	projectName := filepath.Base(currentDir)
+
 	// Ensure local Redis image exists (we'll use official redis image)
 	redisVersion := "7.0.7"
 	imageName := fmt.Sprintf("redis:%s", redisVersion)
@@ -42,6 +51,11 @@ func RedisV2(t testing.TB, nodes int) string {
 	network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
 		NetworkRequest: testcontainers.NetworkRequest{
 			Name: networkName,
+			Labels: map[string]string{
+				"project":     projectName,
+				"testcontainers": "true",
+				"redis-cluster": "true",
+			},
 		},
 	})
 	if err != nil {
@@ -71,6 +85,12 @@ func RedisV2(t testing.TB, nodes int) string {
 			Image: imageName,
 			ExposedPorts: []string{fmt.Sprintf("%d/tcp", port)},
 			Networks: []string{networkName},
+			Labels: map[string]string{
+				"project":     projectName,
+				"testcontainers": "true",
+				"redis-cluster": "true",
+				"redis-node": fmt.Sprintf("%d", i),
+			},
 			WaitingFor: wait.ForListeningPort(nat.Port(fmt.Sprintf("%d/tcp", port))).
 				WithStartupTimeout(10 * time.Second),
 			Cmd: []string{
@@ -96,11 +116,14 @@ func RedisV2(t testing.TB, nodes int) string {
 			t.Fatalf("Failed to start Redis container %d: %v", i, err)
 		}
 
-		// Register cleanup
+		// Register cleanup - capture container in local scope to avoid closure bug
+		// This is critical: without this, all cleanups would reference the last container
+		container := redisC
+		nodeIndex := i
 		t.Cleanup(func() {
 			cleanupCtx := context.Background()
-			if err := redisC.Terminate(cleanupCtx); err != nil {
-				t.Logf("Failed to terminate Redis container %d: %v", i, err)
+			if err := container.Terminate(cleanupCtx); err != nil {
+				t.Logf("Failed to terminate Redis container %d: %v", nodeIndex, err)
 			}
 		})
 

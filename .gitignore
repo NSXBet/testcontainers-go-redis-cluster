@@ -28,3 +28,6 @@ go.work.sum
 .env
 .cache
 .cache/
+.mcp.json
+.claude-flow
+.swarm
