@@ -137,6 +137,12 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 
 		if err != nil {
 			startErr = err
+			// Clean up failed container if it was created
+			if redisContainer != nil {
+				cleanupCtx := context.Background()
+				_ = redisContainer.Terminate(cleanupCtx) // Best effort cleanup
+			}
+
 			// Check if it's a port conflict
 			if strings.Contains(err.Error(), "port is already allocated") ||
 			   strings.Contains(err.Error(), "address already in use") {
