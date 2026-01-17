@@ -82,10 +82,7 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 		port = globalPortAllocator.allocatePort()
 		t.Logf("RedisV3 allocated port %d from pool", port)
 
-		// DON'T release port back to pool - Docker cleanup is async and takes time
-		// Reusing ports too quickly causes "port is already allocated" errors
-		// Just keep allocating new sequential ports - this is fine for testing
-		// (Port exhaustion is not a concern - we'd need 30,000+ tests)
+		// Port will be released in cleanup handler after verifying Docker freed it
 	}
 
 	req := testcontainers.ContainerRequest{
@@ -120,21 +117,34 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 			WithStartupTimeout(30 * time.Second),
 	}
 
+	// Create container (not started yet)
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
-		Started:          true,
+		Started:          false, // Don't start yet - register cleanup first
 	})
 	if err != nil {
-		t.Fatalf("Failed to start Dragonfly container: %v", err)
+		t.Fatalf("Failed to create Dragonfly container: %v", err)
 	}
 
-	// Register cleanup
+	// Register cleanup BEFORE starting (ensures cleanup even if start fails)
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
 		if err := container.Terminate(cleanupCtx); err != nil {
 			t.Logf("Failed to terminate Dragonfly container: %v", err)
 		}
+		// Wait for Docker to actually free the port before releasing to pool
+		// Docker cleanup is async - even after Terminate returns
+		if opts.startingPort == 0 { // Only for auto-allocated ports
+			waitForPortFree(port, 5*time.Second, t)
+			globalPortAllocator.releasePort(port)
+			t.Logf("RedisV3 released port %d to pool after Docker cleanup", port)
+		}
 	})
+
+	// Now start the container
+	if err := container.Start(ctx); err != nil {
+		t.Fatalf("Failed to start Dragonfly container: %v", err)
+	}
 
 	// Get the host and mapped port
 	host, err := container.Host(ctx)
