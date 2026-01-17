@@ -3,6 +3,7 @@ package tcredis
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,72 +78,99 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 		SetStartingPort(opts.startingPort)
 	}
 
-	// Always allocate from pool (supports parallel test execution)
-	port := globalPortAllocator.allocatePort()
-	t.Logf("RedisV3 allocated port %d", port)
+	// Retry loop: if port is in use, try next port from pool
+	// This handles both Docker async cleanup and actual port conflicts
+	const maxRetries = 10
+	var redisContainer testcontainers.Container // Renamed to avoid conflict with container package
+	var port int
+	var startErr error
 
-	req := testcontainers.ContainerRequest{
-		Image:        imageName,
-		ExposedPorts: []string{fmt.Sprintf("%d/tcp", port)},
-		Labels: map[string]string{
-			"testcontainers": "true",
-			"redis-v3":       "true",
-			"dragonfly":      "true",
-		},
-		// Use HostConfigModifier for FIXED 1:1 port mapping
-		// Critical: cluster-announce-port must match actual accessible port
-		HostConfigModifier: func(hostConfig *container.HostConfig) {
-			hostConfig.PortBindings = nat.PortMap{
-				nat.Port(fmt.Sprintf("%d/tcp", port)): []nat.PortBinding{
-					{
-						HostIP:   "0.0.0.0",
-						HostPort: fmt.Sprintf("%d", port),
-					},
-				},
-			}
-		},
-		// Enable emulated cluster mode with cluster-announce settings
-		// This ensures CLUSTER SLOTS returns 127.0.0.1:26379 (accessible from host)
-		Cmd: []string{
-			"--cluster_mode=emulated",
-			"--port", fmt.Sprintf("%d", port),
-			"--cluster_announce_ip", "127.0.0.1",
-			"--announce_port", fmt.Sprintf("%d", port),
-		},
-		WaitingFor: wait.ForListeningPort(nat.Port(fmt.Sprintf("%d/tcp", port))).
-			WithStartupTimeout(30 * time.Second),
-	}
-
-	// Create container (not started yet)
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          false, // Don't start yet - register cleanup first
-	})
-	if err != nil {
-		t.Fatalf("Failed to create Dragonfly container: %v", err)
-	}
-
-	// Register cleanup BEFORE starting (ensures cleanup even if start fails)
-	t.Cleanup(func() {
-		cleanupCtx := context.Background()
-		if err := container.Terminate(cleanupCtx); err != nil {
-			t.Logf("Failed to terminate Dragonfly container: %v", err)
+	for retry := 0; retry < maxRetries; retry++ {
+		// Allocate port from pool
+		port = globalPortAllocator.allocatePort()
+		if retry > 0 {
+			t.Logf("RedisV3 retrying with port %d (attempt %d/%d)", port, retry+1, maxRetries)
+		} else {
+			t.Logf("RedisV3 allocated port %d", port)
 		}
-		// Wait for Docker to actually free the port before releasing to pool
-		// Docker cleanup is async - even after Terminate returns successfully,
-		// it may take several seconds to release port bindings
-		waitForPortFree(port, 5*time.Second, t)
-		globalPortAllocator.releasePort(port)
-		t.Logf("RedisV3 released port %d to pool", port)
-	})
 
-	// Now start the container
-	if err := container.Start(ctx); err != nil {
-		t.Fatalf("Failed to start Dragonfly container: %v", err)
+		// Capture port in closures (both HostConfig and cleanup)
+		portForClosure := port
+
+		req := testcontainers.ContainerRequest{
+			Image:        imageName,
+			ExposedPorts: []string{fmt.Sprintf("%d/tcp", portForClosure)},
+			Labels: map[string]string{
+				"testcontainers": "true",
+				"redis-v3":       "true",
+				"dragonfly":      "true",
+			},
+			// Use HostConfigModifier for FIXED 1:1 port mapping
+			// Critical: cluster-announce-port must match actual accessible port
+			HostConfigModifier: func(hostConfig *container.HostConfig) {
+				hostConfig.PortBindings = nat.PortMap{
+					nat.Port(fmt.Sprintf("%d/tcp", portForClosure)): []nat.PortBinding{
+						{
+							HostIP:   "0.0.0.0",
+							HostPort: fmt.Sprintf("%d", portForClosure),
+						},
+					},
+				}
+			},
+			// Enable emulated cluster mode with cluster-announce settings
+			Cmd: []string{
+				"--cluster_mode=emulated",
+				"--port", fmt.Sprintf("%d", portForClosure),
+				"--cluster_announce_ip", "127.0.0.1",
+				"--announce_port", fmt.Sprintf("%d", portForClosure),
+			},
+			WaitingFor: wait.ForListeningPort(nat.Port(fmt.Sprintf("%d/tcp", portForClosure))).
+				WithStartupTimeout(30 * time.Second),
+		}
+
+		// Try to create and start container
+		var err error
+		redisContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+
+		if err != nil {
+			startErr = err
+			// Check if it's a port conflict
+			if strings.Contains(err.Error(), "port is already allocated") ||
+			   strings.Contains(err.Error(), "address already in use") {
+				// Port conflict - try next port
+				t.Logf("Port %d in use, trying next port", port)
+				continue
+			}
+			// Other error - fail immediately
+			t.Fatalf("Failed to start Dragonfly container (not port conflict): %v", err)
+		}
+
+		// Success! Register cleanup and break retry loop
+		finalPort := port // Capture successful port for cleanup
+		finalContainer := redisContainer // Capture container for cleanup
+		t.Cleanup(func() {
+			cleanupCtx := context.Background()
+			if err := finalContainer.Terminate(cleanupCtx); err != nil {
+				t.Logf("Failed to terminate Dragonfly container: %v", err)
+			}
+			// Wait for Docker to actually free the port before releasing to pool
+			waitForPortFree(finalPort, 5*time.Second, t)
+			globalPortAllocator.releasePort(finalPort)
+			t.Logf("RedisV3 released port %d to pool", finalPort)
+		})
+		break
+	}
+
+	// Check if all retries failed
+	if redisContainer == nil {
+		t.Fatalf("Failed to start Dragonfly after %d retries (all ports in use): %v", maxRetries, startErr)
 	}
 
 	// Get the host and mapped port
-	host, err := container.Host(ctx)
+	host, err := redisContainer.Host(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get container host: %v", err)
 	}
@@ -150,7 +178,7 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 		host = "127.0.0.1"
 	}
 
-	mappedPort, err := container.MappedPort(ctx, nat.Port(fmt.Sprintf("%d/tcp", port)))
+	mappedPort, err := redisContainer.MappedPort(ctx, nat.Port(fmt.Sprintf("%d/tcp", port)))
 	if err != nil {
 		t.Fatalf("Failed to get mapped port: %v", err)
 	}
