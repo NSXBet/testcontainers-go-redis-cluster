@@ -21,9 +21,10 @@ type RedisV3Options struct {
 // RedisV3Option is a functional option for configuring RedisV3
 type RedisV3Option func(*RedisV3Options)
 
-// WithStartingPort sets a custom starting port for this RedisV3 instance
-// This overrides the global port allocator for this specific test
-// Useful when you need specific port numbers or want to avoid conflicts
+// WithStartingPort sets a custom base port for the port allocator
+// The allocator will start allocating from this port instead of the default 27000
+// This affects ALL subsequent tests, not just this one
+// Example: WithStartingPort(7000) means tests will use 7000, 7001, 7002, etc.
 func WithStartingPort(port int) RedisV3Option {
 	return func(opts *RedisV3Options) {
 		opts.startingPort = port
@@ -71,19 +72,14 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 	// Use Dragonfly's official Docker image
 	imageName := "docker.dragonflydb.io/dragonflydb/dragonfly:latest"
 
-	// Determine port: use custom port if specified, otherwise allocate from pool
-	var port int
+	// Set base port if specified (changes allocator for all subsequent tests)
 	if opts.startingPort > 0 {
-		// Use custom port (no pool management)
-		port = opts.startingPort
-		t.Logf("RedisV3 using custom port %d", port)
-	} else {
-		// Allocate from pool (supports parallel test execution)
-		port = globalPortAllocator.allocatePort()
-		t.Logf("RedisV3 allocated port %d from pool", port)
-
-		// Port will be released in cleanup handler after verifying Docker freed it
+		SetStartingPort(opts.startingPort)
 	}
+
+	// Always allocate from pool (supports parallel test execution)
+	port := globalPortAllocator.allocatePort()
+	t.Logf("RedisV3 allocated port %d", port)
 
 	req := testcontainers.ContainerRequest{
 		Image:        imageName,
@@ -133,12 +129,11 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 			t.Logf("Failed to terminate Dragonfly container: %v", err)
 		}
 		// Wait for Docker to actually free the port before releasing to pool
-		// Docker cleanup is async - even after Terminate returns
-		if opts.startingPort == 0 { // Only for auto-allocated ports
-			waitForPortFree(port, 5*time.Second, t)
-			globalPortAllocator.releasePort(port)
-			t.Logf("RedisV3 released port %d to pool after Docker cleanup", port)
-		}
+		// Docker cleanup is async - even after Terminate returns successfully,
+		// it may take several seconds to release port bindings
+		waitForPortFree(port, 5*time.Second, t)
+		globalPortAllocator.releasePort(port)
+		t.Logf("RedisV3 released port %d to pool", port)
 	})
 
 	// Now start the container

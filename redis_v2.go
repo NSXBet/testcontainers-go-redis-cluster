@@ -25,9 +25,10 @@ type RedisV2Options struct {
 // RedisV2Option is a functional option for configuring RedisV2
 type RedisV2Option func(*RedisV2Options)
 
-// WithStartingPortV2 sets a custom starting port for this RedisV2 cluster
-// This overrides the global port allocator for this specific test
-// The cluster will use ports [startingPort, startingPort+nodes-1]
+// WithStartingPortV2 sets a custom base port for the port allocator
+// The allocator will start allocating from this port instead of the default 27000
+// This affects ALL subsequent tests, not just this one
+// Example: WithStartingPortV2(7000) means tests will use 7000-7002, 7003-7005, etc.
 func WithStartingPortV2(port int) RedisV2Option {
 	return func(opts *RedisV2Options) {
 		opts.startingPort = port
@@ -61,21 +62,18 @@ func RedisV2(t testing.TB, nodes int, options ...RedisV2Option) string {
 
 	ctx := context.Background()
 
-	// Determine starting port: use custom port if specified, otherwise allocate from pool
-	var initialPort int
+	// Set base port if specified (changes allocator for all subsequent tests)
 	if opts.startingPort > 0 {
-		// Use custom port (no pool management)
-		initialPort = opts.startingPort
-		t.Logf("RedisV2 using custom port range %d-%d", initialPort, initialPort+nodes-1)
-	} else {
-		// Allocate port range from pool (supports parallel test execution)
-		initialPort = globalPortAllocator.allocatePortRange(nodes)
-		t.Logf("RedisV2 allocated port range %d-%d from pool", initialPort, initialPort+nodes-1)
-
-		// DON'T release ports back to pool - Docker cleanup is async and takes time
-		// Reusing ports too quickly causes "port is already allocated" errors
-		// Just keep allocating new sequential ports - this is fine for testing
+		SetStartingPort(opts.startingPort)
 	}
+
+	// Always allocate from pool (supports parallel test execution)
+	initialPort := globalPortAllocator.allocatePortRange(nodes)
+	t.Logf("RedisV2 allocated port range %d-%d", initialPort, initialPort+nodes-1)
+
+	// TODO: Implement port range cleanup with waitForPortFree for each port
+	// For now, RedisV2 doesn't reuse port ranges (finding contiguous free ranges is complex)
+	// This is acceptable since RedisV2 should rarely be used (RedisV3 is preferred)
 
 	// Get current directory name for Docker grouping
 	currentDir, err := os.Getwd()
