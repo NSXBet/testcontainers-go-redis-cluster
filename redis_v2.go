@@ -72,11 +72,9 @@ func RedisV2(t testing.TB, nodes int, options ...RedisV2Option) string {
 		initialPort = globalPortAllocator.allocatePortRange(nodes)
 		t.Logf("RedisV2 allocated port range %d-%d from pool", initialPort, initialPort+nodes-1)
 
-		// Register port cleanup - return ports to pool when test completes
-		t.Cleanup(func() {
-			globalPortAllocator.releasePortRange(initialPort, nodes)
-			t.Logf("RedisV2 released port range %d-%d to pool", initialPort, initialPort+nodes-1)
-		})
+		// DON'T release ports back to pool - Docker cleanup is async and takes time
+		// Reusing ports too quickly causes "port is already allocated" errors
+		// Just keep allocating new sequential ports - this is fine for testing
 	}
 
 	// Get current directory name for Docker grouping

@@ -35,19 +35,15 @@ func SetStartingPort(port int) {
 }
 
 // allocatePort allocates a single port for testing
-// It first tries to reuse a released port, otherwise allocates a new sequential port
+// Always allocates a new sequential port (no reuse) to avoid Docker async cleanup issues
 func (pa *portAllocator) allocatePort() int {
 	pa.mu.Lock()
 	defer pa.mu.Unlock()
 
-	// Try to reuse a released port first
-	if len(pa.releasedPorts) > 0 {
-		port := pa.releasedPorts[len(pa.releasedPorts)-1]
-		pa.releasedPorts = pa.releasedPorts[:len(pa.releasedPorts)-1]
-		return port
-	}
-
-	// No free ports, allocate new one
+	// Always allocate new sequential port
+	// We don't reuse ports because Docker cleanup is async - even after container.Terminate()
+	// returns, Docker may still be cleaning up network bindings for several seconds
+	// Reusing ports causes "port is already allocated" errors
 	port := pa.nextPort
 	pa.nextPort++
 	return port
@@ -62,12 +58,13 @@ func (pa *portAllocator) releasePort(port int) {
 
 // allocatePortRange allocates a contiguous range of ports for multi-node clusters
 // Returns the starting port of the allocated range
+// Always allocates new sequential ports (no reuse) to avoid Docker async cleanup issues
 func (pa *portAllocator) allocatePortRange(count int) int {
 	pa.mu.Lock()
 	defer pa.mu.Unlock()
 
-	// For ranges, we don't try to reuse - just allocate sequentially
-	// This ensures we get contiguous ports which simplifies cluster setup
+	// Always allocate new sequential port range
+	// We don't reuse because Docker cleanup is async
 	startPort := pa.nextPort
 	pa.nextPort += count
 	return startPort

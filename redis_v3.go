@@ -82,11 +82,10 @@ func RedisV3(t testing.TB, options ...RedisV3Option) string {
 		port = globalPortAllocator.allocatePort()
 		t.Logf("RedisV3 allocated port %d from pool", port)
 
-		// Register port cleanup - return port to pool when test completes
-		t.Cleanup(func() {
-			globalPortAllocator.releasePort(port)
-			t.Logf("RedisV3 released port %d to pool", port)
-		})
+		// DON'T release port back to pool - Docker cleanup is async and takes time
+		// Reusing ports too quickly causes "port is already allocated" errors
+		// Just keep allocating new sequential ports - this is fine for testing
+		// (Port exhaustion is not a concern - we'd need 30,000+ tests)
 	}
 
 	req := testcontainers.ContainerRequest{
