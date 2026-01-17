@@ -118,8 +118,13 @@ func RedisV3(t testing.TB) string {
 	totalTime := time.Since(startTime)
 	t.Logf("RedisV3 (Dragonfly emulated cluster) ready in %v", totalTime)
 
-	// Return connection string in Redis cluster format
-	// Even though it's a single node, clients will treat it as a cluster
+	// Return connection string
+	// When using redis.NewClusterClient() or redis.ParseClusterURL(), the client will:
+	// 1. Call CLUSTER SLOTS on this address
+	// 2. Discover that Dragonfly handles all 16384 hash slots (0-16383)
+	// 3. Route commands based on hash slots to this single node
+	// This works because Dragonfly emulated mode responds to CLUSTER commands correctly,
+	// not because of any special connection string format
 	return fmt.Sprintf("redis://%s", addr)
 }
 
@@ -137,7 +142,7 @@ func waitForRedisV3Ready(ctx context.Context, t testing.TB, addr string) error {
 	})
 	defer client.Close()
 
-	for i := 0; i < maxAttempts; i++ {
+	for i := range maxAttempts {
 		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 
 		// Try PING
