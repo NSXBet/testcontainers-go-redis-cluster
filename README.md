@@ -190,6 +190,43 @@ Redis V1: 20-24 seconds    (baseline)
 - 🥈 **Use `Redis` (V1)** when you specifically need multi-node behavior or replicas
 - 🥉 **Use `RedisV2`** rarely - only when you need multi-node testing and V1 is too slow
 
+## Parallel Test Execution
+
+All implementations support parallel test execution without port conflicts. The library uses an internal port allocator that:
+
+1. **Allocates ports sequentially** starting from 27000 (configurable)
+2. **Reuses released ports** when tests complete
+3. **Thread-safe** for concurrent test execution
+
+### Customizing the Starting Port
+
+If you need to use a different starting port (e.g., to avoid conflicts), set it before running tests:
+
+```go
+func TestMain(m *testing.M) {
+    // Set starting port to 37000 instead of default 27000
+    tcredis.SetStartingPort(37000)
+    os.Exit(m.Run())
+}
+```
+
+**Note:** `SetStartingPort()` only takes effect if called before any ports are allocated. Call it in `TestMain` or `init()`.
+
+### Port Allocation Behavior
+
+- **RedisV3**: Allocates 1 port per instance (reused after cleanup)
+- **RedisV2**: Allocates N contiguous ports for N nodes (e.g., 27000-27002 for 3 nodes)
+- **Redis (V1)**: Allocates 2*N ports for N masters + N replicas (e.g., 10000-10005 for 3 masters)
+
+Example parallel execution:
+```go
+// Test 1 gets port 27000
+// Test 2 gets port 27001 (while Test 1 still running)
+// Test 3 gets port 27002 (while Test 1 & 2 still running)
+// Test 1 completes, releases 27000
+// Test 4 gets port 27000 (reused)
+```
+
 ## Requirements
 
 - Go 1.21 or later

@@ -42,9 +42,16 @@ func RedisV3(t testing.TB) string {
 	// Use Dragonfly's official Docker image
 	imageName := "docker.dragonflydb.io/dragonflydb/dragonfly:latest"
 
-	// Use a high port to avoid conflicts (same approach as RedisV2)
+	// Allocate a port for this test (supports parallel test execution)
 	// Using fixed port mapping so cluster-announce-port matches actual port
-	port := 26379 // Dragonfly default port offset
+	port := globalPortAllocator.allocatePort()
+	t.Logf("RedisV3 allocated port %d", port)
+
+	// Register port cleanup - return port to pool when test completes
+	t.Cleanup(func() {
+		globalPortAllocator.releasePort(port)
+		t.Logf("RedisV3 released port %d", port)
+	})
 
 	req := testcontainers.ContainerRequest{
 		Image:        imageName,

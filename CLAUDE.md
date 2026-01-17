@@ -138,6 +138,30 @@ Both implementations register cleanup callbacks via `t.Cleanup()` to ensure:
 - External: Docker-mapped random ports
 - Announce: External mapped ports
 
+## Parallel Test Execution
+
+**All implementations support parallel test execution** via an internal port allocator (ports.go):
+
+- **Port Allocation**: Sequentially allocates ports starting from 27000 (configurable)
+- **Port Reuse**: Released ports are returned to a free pool and reused
+- **Thread-Safe**: Uses sync.Mutex for concurrent access
+- **Configurable**: Use `SetStartingPort(port)` in TestMain to customize base port
+
+**How it works:**
+1. Test requests port via `allocatePort()` or `allocatePortRange(n)`
+2. Port allocator checks free pool first, otherwise increments counter
+3. Test registers cleanup to release port back to pool
+4. Parallel tests get different ports, sequential tests reuse ports
+
+**Example:**
+```go
+// Test 1: allocates 27000
+// Test 2 (parallel): allocates 27001
+// Test 3 (parallel): allocates 27002
+// Test 1 completes: releases 27000
+// Test 4: reuses 27000
+```
+
 ## Testing Notes
 
 - Tests accept both `*testing.T` (unit tests) and `*testing.B` (benchmarks) via `testing.TB` interface
@@ -145,6 +169,7 @@ Both implementations register cleanup callbacks via `t.Cleanup()` to ensure:
 - RedisV2 has no replicas, so read scaling tests should use Redis V1
 - Minimum 3 nodes required (enforced with clear error message)
 - Docker must be running before tests
+- **Parallel testing is fully supported** - no port conflicts
 
 ## Dependencies
 

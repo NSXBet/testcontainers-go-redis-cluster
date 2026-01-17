@@ -29,9 +29,17 @@ func RedisV2(t testing.TB, nodes int) string {
 	}
 
 	ctx := context.Background()
-	// Use high ports to avoid conflicts with common services
-	// Starting from 27000 gives us plenty of room and avoids most conflicts
-	initialPort := 27000
+
+	// Allocate a port range for this cluster (supports parallel test execution)
+	// Each node needs its own port
+	initialPort := globalPortAllocator.allocatePortRange(nodes)
+	t.Logf("RedisV2 allocated port range %d-%d (%d ports)", initialPort, initialPort+nodes-1, nodes)
+
+	// Register port cleanup - return ports to pool when test completes
+	t.Cleanup(func() {
+		globalPortAllocator.releasePortRange(initialPort, nodes)
+		t.Logf("RedisV2 released port range %d-%d", initialPort, initialPort+nodes-1)
+	})
 
 	// Get current directory name for Docker grouping
 	currentDir, err := os.Getwd()
