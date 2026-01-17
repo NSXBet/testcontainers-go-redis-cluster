@@ -21,6 +21,9 @@ var globalPortAllocator = &portAllocator{
 // SetStartingPort sets the starting port for the global port allocator
 // This must be called before any tests run (e.g., in TestMain or init)
 // Subsequent calls have no effect
+//
+// Note: For test-specific port configuration, prefer using WithStartingPort() or
+// WithStartingPortV2() options instead of this global setting.
 func SetStartingPort(port int) {
 	globalPortAllocator.mu.Lock()
 	defer globalPortAllocator.mu.Unlock()

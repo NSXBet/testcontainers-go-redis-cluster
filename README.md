@@ -198,19 +198,32 @@ All implementations support parallel test execution without port conflicts. The 
 2. **Reuses released ports** when tests complete
 3. **Thread-safe** for concurrent test execution
 
-### Customizing the Starting Port
+### Customizing Ports
 
-If you need to use a different starting port (e.g., to avoid conflicts), set it before running tests:
+You can customize ports in two ways:
+
+**1. Per-test (Recommended)** - Using functional options:
+
+```go
+// RedisV3 with custom port
+connStr := tcredis.RedisV3(t, tcredis.WithStartingPort(38000))
+
+// RedisV2 with custom port range
+connStr := tcredis.RedisV2(t, 3, tcredis.WithStartingPortV2(39000))
+// Uses ports 39000, 39001, 39002
+```
+
+**2. Global** - Using `SetStartingPort()` in TestMain:
 
 ```go
 func TestMain(m *testing.M) {
-    // Set starting port to 37000 instead of default 27000
+    // All tests will use ports starting from 37000
     tcredis.SetStartingPort(37000)
     os.Exit(m.Run())
 }
 ```
 
-**Note:** `SetStartingPort()` only takes effect if called before any ports are allocated. Call it in `TestMain` or `init()`.
+**Recommendation:** Use functional options (`WithStartingPort`) for flexibility. Use `SetStartingPort()` only if you need to change the default for all tests.
 
 ### Port Allocation Behavior
 

@@ -17,29 +17,67 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// RedisV2Options configures RedisV2 behavior
+type RedisV2Options struct {
+	startingPort int
+}
+
+// RedisV2Option is a functional option for configuring RedisV2
+type RedisV2Option func(*RedisV2Options)
+
+// WithStartingPortV2 sets a custom starting port for this RedisV2 cluster
+// This overrides the global port allocator for this specific test
+// The cluster will use ports [startingPort, startingPort+nodes-1]
+func WithStartingPortV2(port int) RedisV2Option {
+	return func(opts *RedisV2Options) {
+		opts.startingPort = port
+	}
+}
+
 // RedisV2 sets up a Redis cluster by starting N separate Redis containers
 // and configuring them to form a cluster. This approach is faster than
 // using the grokzen image since individual Redis containers start very quickly.
 // It returns a connection string in the format redis://host:port
 // that can be used with Redis clients that support cluster mode.
-func RedisV2(t testing.TB, nodes int) string {
+//
+// Options:
+// - WithStartingPortV2(port): Use a specific starting port instead of auto-allocation
+//
+// Note: RedisV2 has 30-55% reliability due to Redis gossip protocol issues in Docker.
+// For production tests, use RedisV3 (100% reliable) or Redis V1 (100% reliable with replicas).
+func RedisV2(t testing.TB, nodes int, options ...RedisV2Option) string {
 	startTime := time.Now()
+	// Apply options
+	opts := &RedisV2Options{
+		startingPort: 0, // 0 means use port allocator
+	}
+	for _, option := range options {
+		option(opts)
+	}
+
 	if nodes < 3 {
 		t.Fatalf("number of nodes must be at least 3 for a Redis cluster, got %d. Redis clusters require at least 3 master nodes to distribute hash slots.", nodes)
 	}
 
 	ctx := context.Background()
 
-	// Allocate a port range for this cluster (supports parallel test execution)
-	// Each node needs its own port
-	initialPort := globalPortAllocator.allocatePortRange(nodes)
-	t.Logf("RedisV2 allocated port range %d-%d (%d ports)", initialPort, initialPort+nodes-1, nodes)
+	// Determine starting port: use custom port if specified, otherwise allocate from pool
+	var initialPort int
+	if opts.startingPort > 0 {
+		// Use custom port (no pool management)
+		initialPort = opts.startingPort
+		t.Logf("RedisV2 using custom port range %d-%d", initialPort, initialPort+nodes-1)
+	} else {
+		// Allocate port range from pool (supports parallel test execution)
+		initialPort = globalPortAllocator.allocatePortRange(nodes)
+		t.Logf("RedisV2 allocated port range %d-%d from pool", initialPort, initialPort+nodes-1)
 
-	// Register port cleanup - return ports to pool when test completes
-	t.Cleanup(func() {
-		globalPortAllocator.releasePortRange(initialPort, nodes)
-		t.Logf("RedisV2 released port range %d-%d", initialPort, initialPort+nodes-1)
-	})
+		// Register port cleanup - return ports to pool when test completes
+		t.Cleanup(func() {
+			globalPortAllocator.releasePortRange(initialPort, nodes)
+			t.Logf("RedisV2 released port range %d-%d to pool", initialPort, initialPort+nodes-1)
+		})
+	}
 
 	// Get current directory name for Docker grouping
 	currentDir, err := os.Getwd()

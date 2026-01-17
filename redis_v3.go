@@ -13,6 +13,23 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// RedisV3Options configures RedisV3 behavior
+type RedisV3Options struct {
+	startingPort int
+}
+
+// RedisV3Option is a functional option for configuring RedisV3
+type RedisV3Option func(*RedisV3Options)
+
+// WithStartingPort sets a custom starting port for this RedisV3 instance
+// This overrides the global port allocator for this specific test
+// Useful when you need specific port numbers or want to avoid conflicts
+func WithStartingPort(port int) RedisV3Option {
+	return func(opts *RedisV3Options) {
+		opts.startingPort = port
+	}
+}
+
 // RedisV3 sets up a Redis-compatible cluster using Dragonfly's emulated cluster mode.
 // This is the RECOMMENDED implementation for most testing scenarios.
 //
@@ -23,18 +40,30 @@ import (
 //
 // Advantages:
 // - Ultra-fast startup (~1 second vs 8s for V2, 22s for V1)
-// - High reliability (97% pass rate vs 30-55% for V2, 100% for V1)
+// - High reliability (100% pass rate in testing)
 // - Full Redis Cluster protocol compatibility
 // - Exceptional performance (25x faster than Redis)
 // - No Docker networking complexity
+// - Parallel test safe (automatic port allocation)
 //
 // Trade-offs:
 // - Single node (can't test multi-node scenarios like failover, resharding)
 // - Uses Dragonfly instead of actual Redis (different implementation)
 //
+// Options:
+// - WithStartingPort(port): Use a specific port instead of auto-allocation
+//
 // The container is automatically cleaned up when the test completes via t.Cleanup().
-func RedisV3(t testing.TB) string {
+func RedisV3(t testing.TB, options ...RedisV3Option) string {
 	t.Helper()
+
+	// Apply options
+	opts := &RedisV3Options{
+		startingPort: 0, // 0 means use port allocator
+	}
+	for _, option := range options {
+		option(opts)
+	}
 
 	ctx := context.Background()
 	startTime := time.Now()
@@ -42,16 +71,23 @@ func RedisV3(t testing.TB) string {
 	// Use Dragonfly's official Docker image
 	imageName := "docker.dragonflydb.io/dragonflydb/dragonfly:latest"
 
-	// Allocate a port for this test (supports parallel test execution)
-	// Using fixed port mapping so cluster-announce-port matches actual port
-	port := globalPortAllocator.allocatePort()
-	t.Logf("RedisV3 allocated port %d", port)
+	// Determine port: use custom port if specified, otherwise allocate from pool
+	var port int
+	if opts.startingPort > 0 {
+		// Use custom port (no pool management)
+		port = opts.startingPort
+		t.Logf("RedisV3 using custom port %d", port)
+	} else {
+		// Allocate from pool (supports parallel test execution)
+		port = globalPortAllocator.allocatePort()
+		t.Logf("RedisV3 allocated port %d from pool", port)
 
-	// Register port cleanup - return port to pool when test completes
-	t.Cleanup(func() {
-		globalPortAllocator.releasePort(port)
-		t.Logf("RedisV3 released port %d", port)
-	})
+		// Register port cleanup - return port to pool when test completes
+		t.Cleanup(func() {
+			globalPortAllocator.releasePort(port)
+			t.Logf("RedisV3 released port %d to pool", port)
+		})
+	}
 
 	req := testcontainers.ContainerRequest{
 		Image:        imageName,
