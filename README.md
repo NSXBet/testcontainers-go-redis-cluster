@@ -195,8 +195,10 @@ Redis V1: 20-24 seconds    (baseline)
 All implementations support parallel test execution without port conflicts. The library uses an internal port allocator that:
 
 1. **Allocates ports sequentially** starting from 27000 (configurable)
-2. **Reuses released ports** when tests complete
+2. **No port reuse** - always allocates new sequential ports to avoid Docker async cleanup conflicts
 3. **Thread-safe** for concurrent test execution
+
+**Why no port reuse?** Docker's cleanup is asynchronous. Even after `container.Terminate()` returns, Docker may spend several seconds cleaning up network bindings. Reusing ports too quickly causes "port is already allocated" errors.
 
 ### Customizing Ports
 
@@ -234,10 +236,11 @@ func TestMain(m *testing.M) {
 Example parallel execution:
 ```go
 // Test 1 gets port 27000
-// Test 2 gets port 27001 (while Test 1 still running)
-// Test 3 gets port 27002 (while Test 1 & 2 still running)
-// Test 1 completes, releases 27000
-// Test 4 gets port 27000 (reused)
+// Test 2 gets port 27001 (parallel or sequential)
+// Test 3 gets port 27002
+// Test 4 gets port 27003
+// etc.
+// Ports are NOT reused to avoid Docker async cleanup conflicts
 ```
 
 ## Requirements

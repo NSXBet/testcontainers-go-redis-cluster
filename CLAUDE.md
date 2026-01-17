@@ -143,23 +143,25 @@ Both implementations register cleanup callbacks via `t.Cleanup()` to ensure:
 **All implementations support parallel test execution** via an internal port allocator (ports.go):
 
 - **Port Allocation**: Sequentially allocates ports starting from 27000 (configurable)
-- **Port Reuse**: Released ports are returned to a free pool and reused
+- **No Port Reuse**: Ports are NOT reused to avoid Docker async cleanup conflicts
 - **Thread-Safe**: Uses sync.Mutex for concurrent access
-- **Configurable**: Use `SetStartingPort(port)` in TestMain to customize base port
+- **Configurable**: Use functional options (`WithStartingPort()`) or global `SetStartingPort()`
+
+**Why no port reuse?** Docker's `container.Terminate()` is async. Even after it returns, Docker may spend several seconds cleaning up network bindings. Reusing ports causes "port is already allocated" errors.
 
 **How it works:**
 1. Test requests port via `allocatePort()` or `allocatePortRange(n)`
-2. Port allocator checks free pool first, otherwise increments counter
-3. Test registers cleanup to release port back to pool
-4. Parallel tests get different ports, sequential tests reuse ports
+2. Port allocator returns next sequential port (increments counter)
+3. Parallel tests get different ports (27000, 27001, 27002, etc.)
+4. Ports are never reused (port exhaustion not a concern - would need 30,000+ tests)
 
 **Example:**
 ```go
 // Test 1: allocates 27000
 // Test 2 (parallel): allocates 27001
 // Test 3 (parallel): allocates 27002
-// Test 1 completes: releases 27000
-// Test 4: reuses 27000
+// Test 4 (after 1-3 complete): allocates 27003
+// No reuse, no conflicts!
 ```
 
 ## Testing Notes
